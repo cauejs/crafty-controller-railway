@@ -92,4 +92,4 @@ echo "[Railway] Iniciando Crafty..."
 
 cd "$TARGET"
 
-exec "$TARGET/docker_launcher.sh"
+exec "$TARGET/docker_launcher.sh" -d -i
