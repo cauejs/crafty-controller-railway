@@ -1,38 +1,95 @@
 #!/bin/bash
 set -e
 
-# Estrutura persistente dentro do único volume Railway
-mkdir -p \
-  /data/backups \
-  /data/logs \
-  /data/servers \
-  /data/config \
-  /data/import
+SOURCE="/crafty-image"
+TARGET="/crafty"
 
-# Na primeira inicialização, copia a configuração padrão da imagem
-if [ -z "$(ls -A /data/config 2>/dev/null)" ]; then
-    echo "Inicializando configuração do Crafty..."
-    cp -a /crafty/app/config_original/. /data/config/
+echo "======================================"
+echo " Crafty Controller - Railway"
+echo "======================================"
+
+# O Railway monta o volume vazio em /crafty.
+mkdir -p "$TARGET"
+
+# ------------------------------------------------
+# PRIMEIRO BOOT
+# ------------------------------------------------
+
+if [ ! -f "$TARGET/.railway-initialized" ]; then
+    echo "[Railway] Primeiro boot."
+    echo "[Railway] Copiando Crafty para o volume..."
+
+    cp -a "$SOURCE/." "$TARGET/"
+
+    touch "$TARGET/.railway-initialized"
+
+    echo "[Railway] Inicialização concluída."
+
+else
+
+    # ------------------------------------------------
+    # DEPLOYS/ATUALIZAÇÕES
+    # ------------------------------------------------
+
+    echo "[Railway] Volume existente encontrado."
+    echo "[Railway] Atualizando aplicação..."
+
+    # Salva os dados persistentes temporariamente.
+    mkdir -p /tmp/crafty-persist
+
+    for dir in \
+        app/config \
+        servers \
+        backups \
+        logs \
+        import
+    do
+        if [ -e "$TARGET/$dir" ]; then
+            mkdir -p "/tmp/crafty-persist/$(dirname "$dir")"
+            mv "$TARGET/$dir" "/tmp/crafty-persist/$dir"
+        fi
+    done
+
+    # Atualiza os arquivos da aplicação com os da nova imagem.
+    cp -a "$SOURCE/." "$TARGET/"
+
+    # Restaura os dados persistentes.
+    for dir in \
+        app/config \
+        servers \
+        backups \
+        logs \
+        import
+    do
+        if [ -e "/tmp/crafty-persist/$dir" ]; then
+
+            rm -rf "$TARGET/$dir"
+
+            mkdir -p "$(dirname "$TARGET/$dir")"
+
+            mv "/tmp/crafty-persist/$dir" "$TARGET/$dir"
+        fi
+    done
+
+    touch "$TARGET/.railway-initialized"
+
+    echo "[Railway] Atualização concluída."
 fi
 
-# Remove os diretórios não persistentes
-rm -rf \
-  /crafty/backups \
-  /crafty/logs \
-  /crafty/servers \
-  /crafty/app/config \
-  /crafty/import
+# ------------------------------------------------
+# GARANTE DIRETÓRIOS
+# ------------------------------------------------
 
-# Faz o Crafty enxergar o volume do Railway
-ln -s /data/backups /crafty/backups
-ln -s /data/logs /crafty/logs
-ln -s /data/servers /crafty/servers
-ln -s /data/config /crafty/app/config
-ln -s /data/import /crafty/import
+mkdir -p \
+    "$TARGET/servers" \
+    "$TARGET/backups" \
+    "$TARGET/logs" \
+    "$TARGET/import"
 
-# Ajusta permissões
-chown -R 1000:0 /data
+chmod +x "$TARGET/docker_launcher.sh"
 
-echo "Iniciando Crafty..."
+echo "[Railway] Iniciando Crafty..."
 
-exec /crafty/docker_launcher.sh "$@"
+cd "$TARGET"
+
+exec "$TARGET/docker_launcher.sh"
